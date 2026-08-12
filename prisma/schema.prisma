@@ -1,0 +1,97 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Document {
+  id            Int     @id @default(autoincrement())
+  name          String
+  fileType      String
+  filePath      String
+  fileSize      Int?
+  extractedText String?
+  summary       String?
+  sentiment     String?
+  category      String? @default("General")
+
+  favorite   Boolean  @default(false)
+  uploadedAt DateTime @default(now())
+
+  shareId  String? @unique
+  isPublic Boolean @default(false)
+
+  userId   Int
+  user     User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  folderId Int?
+  folder   Folder?           @relation(fields: [folderId], references: [id])
+  versions DocumentVersion[]
+  tags     Tag[]
+}
+
+model DocumentVersion {
+  id         Int @id @default(autoincrement())
+  documentId Int
+
+  name     String?
+  fileType String?
+  filePath String?
+  fileSize Int?
+
+  extractedText String
+  summary       String?
+  sentiment     String?
+  category      String?
+
+  createdAt DateTime @default(now())
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+}
+
+model User {
+  id    Int     @id @default(autoincrement())
+  name  String?
+  email String  @unique
+
+  darkMode              Boolean @default(false)
+  documentNotifications Boolean @default(true)
+  activityNotifications Boolean @default(true)
+
+  password  String
+  role      String   @default("USER")
+  createdAt DateTime @default(now())
+
+  documents Document[]
+  folders   Folder[]
+}
+
+model Folder {
+  id   Int    @id @default(autoincrement())
+  name String
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  documents Document[]
+}
+
+model Activity {
+  id Int @id @default(autoincrement())
+
+  action String
+  target String
+
+  userName  String
+  userEmail String
+
+  createdAt DateTime @default(now())
+}
+
+model Tag {
+  id        Int        @id @default(autoincrement())
+  name      String     @unique
+  documents Document[]
+}

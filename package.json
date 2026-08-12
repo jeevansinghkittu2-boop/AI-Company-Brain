@@ -1,0 +1,45 @@
+{
+  "name": "frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@auth/prisma-adapter": "^2.11.3",
+    "@prisma/client": "^6.19.3",
+    "bcrypt": "^6.0.0",
+    "bcryptjs": "^3.0.3",
+    "chart.js": "^4.5.1",
+    "jspdf": "^4.2.1",
+    "lucide-react": "^1.25.0",
+    "mammoth": "^1.12.0",
+    "multer": "^2.2.0",
+    "next": "16.2.10",
+    "next-auth": "^5.0.0-beta.32",
+    "openai": "^6.48.0",
+    "pdf-parse": "^2.4.5",
+    "prisma": "^6.16.2",
+    "react": "19.2.4",
+    "react-chartjs-2": "^5.3.1",
+    "react-dom": "19.2.4",
+    "react-hot-toast": "^2.6.0",
+    "reactflow": "^11.11.4",
+    "recharts": "^3.10.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/bcrypt": "^6.0.0",
+    "@types/multer": "^2.2.0",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.10",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
