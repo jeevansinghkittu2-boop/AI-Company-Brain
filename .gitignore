@@ -19,6 +19,7 @@ pnpm-debug.log*
 
 # Uploaded files
 uploads/
+AICompanyBrain-backup.dump
 
 # Prisma
 generated/
