@@ -1,6 +1,5 @@
-import { prisma } from "@/lib/prisma";
-import fs from "fs";
 import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 
 interface RouteParams {
@@ -15,7 +14,7 @@ export async function GET(
 ) {
   try {
     // --------------------------------------------------
-    // 1. Check authentication
+    // 1. Authentication
     // --------------------------------------------------
 
     const session = await auth();
@@ -26,12 +25,14 @@ export async function GET(
           success: false,
           message: "Unauthorized",
         },
-        { status: 401 }
+        {
+          status: 401,
+        }
       );
     }
 
     // --------------------------------------------------
-    // 2. Get logged-in user
+    // 2. Get user
     // --------------------------------------------------
 
     const user = await prisma.user.findUnique({
@@ -46,7 +47,9 @@ export async function GET(
           success: false,
           message: "User not found",
         },
-        { status: 404 }
+        {
+          status: 404,
+        }
       );
     }
 
@@ -64,70 +67,93 @@ export async function GET(
           success: false,
           message: "Invalid document ID",
         },
-        { status: 400 }
+        {
+          status: 400,
+        }
       );
     }
 
     // --------------------------------------------------
-    // 4. IMPORTANT: Verify document ownership
+    // 4. Verify document ownership
     // --------------------------------------------------
 
-    const document = await prisma.document.findFirst({
-      where: {
-        id: documentId,
-        userId: user.id,
-      },
-    });
+    const document =
+      await prisma.document.findFirst({
+        where: {
+          id: documentId,
+          userId: user.id,
+        },
+      });
 
     if (!document) {
       return NextResponse.json(
         {
           success: false,
-          message: "Document not found or access denied",
+          message:
+            "Document not found or access denied",
         },
-        { status: 404 }
+        {
+          status: 404,
+        }
       );
     }
 
     // --------------------------------------------------
-    // 5. Check file path
+    // 5. Check Cloudinary URL
     // --------------------------------------------------
 
     if (!document.filePath) {
       return NextResponse.json(
         {
           success: false,
-          message: "File path not found",
+          message: "File URL not found",
         },
-        { status: 404 }
+        {
+          status: 404,
+        }
       );
     }
 
     // --------------------------------------------------
-    // 6. Check physical file
+    // 6. Retrieve file from Cloudinary
     // --------------------------------------------------
 
-    if (!fs.existsSync(document.filePath)) {
+    const response = await fetch(
+      document.filePath
+    );
+
+    if (!response.ok) {
+      console.error(
+        "Cloudinary preview failed:",
+        response.status,
+        response.statusText
+      );
+
       return NextResponse.json(
         {
           success: false,
-          message: "Uploaded file not found",
+          message: "Unable to retrieve file",
         },
-        { status: 404 }
+        {
+          status: 404,
+        }
       );
     }
 
     // --------------------------------------------------
-    // 7. Read file
+    // 7. Convert to buffer
     // --------------------------------------------------
 
-    const file = fs.readFileSync(document.filePath);
+    const fileBuffer =
+      Buffer.from(
+        await response.arrayBuffer()
+      );
 
     // --------------------------------------------------
-    // 8. Return preview
+    // 8. Return inline file
     // --------------------------------------------------
 
-    return new NextResponse(file, {
+    return new Response(fileBuffer, {
       status: 200,
 
       headers: {
@@ -136,7 +162,7 @@ export async function GET(
           "application/octet-stream",
 
         "Content-Length":
-          file.length.toString(),
+          fileBuffer.length.toString(),
 
         "Content-Disposition":
           `inline; filename="${encodeURIComponent(
@@ -145,14 +171,19 @@ export async function GET(
       },
     });
   } catch (error) {
-    console.error("Preview error:", error);
+    console.error(
+      "Preview error:",
+      error
+    );
 
     return NextResponse.json(
       {
         success: false,
         message: "Preview failed",
       },
-      { status: 500 }
+      {
+        status: 500,
+      }
     );
   }
 }

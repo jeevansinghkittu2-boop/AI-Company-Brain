@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
+import os from "os";
 import path from "path";
+import { v2 as cloudinary } from "cloudinary";
 
 import { prisma } from "@/lib/prisma";
 import { extractText } from "@/lib/extractors/extractText";
-import { summarizeText, analyzeSentiment } from "@/lib/ai";
+import {
+  summarizeText,
+  analyzeSentiment,
+} from "@/lib/ai";
 import { auth } from "@/lib/auth";
 
 interface RouteContext {
@@ -13,10 +18,64 @@ interface RouteContext {
   }>;
 }
 
+// --------------------------------------------------
+// Cloudinary configuration
+// --------------------------------------------------
+
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+// --------------------------------------------------
+// Upload buffer to Cloudinary
+// --------------------------------------------------
+
+function uploadToCloudinary(
+  buffer: Buffer,
+  fileName: string,
+  mimeType: string
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const uploadStream =
+      cloudinary.uploader.upload_stream(
+        {
+          folder: "ai-company-brain",
+          resource_type: "auto",
+          public_id: `${Date.now()}-${path
+            .basename(fileName)
+            .replace(/\.[^/.]+$/, "")}`,
+        },
+        (error, result) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+
+          if (!result?.secure_url) {
+            reject(
+              new Error(
+                "Cloudinary did not return a secure URL."
+              )
+            );
+            return;
+          }
+
+          resolve(result.secure_url);
+        }
+      );
+
+    uploadStream.end(buffer);
+  });
+}
+
 export async function POST(
   request: NextRequest,
   { params }: RouteContext
 ) {
+  let temporaryFilePath: string | null = null;
+
   try {
     // --------------------------------------------------
     // 1. Authentication
@@ -73,21 +132,23 @@ export async function POST(
     }
 
     // --------------------------------------------------
-    // 4. IMPORTANT: Verify document ownership
+    // 4. Verify document ownership
     // --------------------------------------------------
 
-    const document = await prisma.document.findFirst({
-      where: {
-        id: documentId,
-        userId: user.id,
-      },
-    });
+    const document =
+      await prisma.document.findFirst({
+        where: {
+          id: documentId,
+          userId: user.id,
+        },
+      });
 
     if (!document) {
       return NextResponse.json(
         {
           success: false,
-          message: "Document not found or access denied",
+          message:
+            "Document not found or access denied",
         },
         { status: 404 }
       );
@@ -97,7 +158,8 @@ export async function POST(
     // 5. Get replacement file
     // --------------------------------------------------
 
-    const formData = await request.formData();
+    const formData =
+      await request.formData();
 
     const file = formData.get("file");
 
@@ -105,7 +167,8 @@ export async function POST(
       return NextResponse.json(
         {
           success: false,
-          message: "No replacement file uploaded",
+          message:
+            "No replacement file uploaded",
         },
         { status: 400 }
       );
@@ -144,37 +207,53 @@ export async function POST(
     );
 
     // --------------------------------------------------
-    // 7. Create upload directory
+    // 7. Read replacement file into memory
     // --------------------------------------------------
 
-    const uploadDir = path.join(
-      process.cwd(),
-      "uploads"
-    );
+    const bytes =
+      await file.arrayBuffer();
 
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, {
+    const buffer = Buffer.from(bytes);
+
+    // --------------------------------------------------
+    // 8. Create temporary file for text extraction
+    // --------------------------------------------------
+    //
+    // Your existing extractText() function expects
+    // a file path. We therefore temporarily save the
+    // file, extract the text, and delete the temp file.
+    //
+    // The actual permanent file is stored in Cloudinary.
+    // --------------------------------------------------
+
+    const tempDirectory =
+      path.join(
+        os.tmpdir(),
+        "ai-company-brain"
+      );
+
+    if (!fs.existsSync(tempDirectory)) {
+      fs.mkdirSync(tempDirectory, {
         recursive: true,
       });
     }
 
-    // --------------------------------------------------
-    // 8. Save new file
-    // --------------------------------------------------
-
-    const bytes = await file.arrayBuffer();
-
-    const buffer = Buffer.from(bytes);
-
     const safeFileName =
-      `${Date.now()}-${file.name}`;
+      `${Date.now()}-${file.name.replace(
+        /[^a-zA-Z0-9._-]/g,
+        "_"
+      )}`;
 
-    const filePath = path.join(
-      uploadDir,
-      safeFileName
+    temporaryFilePath =
+      path.join(
+        tempDirectory,
+        safeFileName
+      );
+
+    fs.writeFileSync(
+      temporaryFilePath,
+      buffer
     );
-
-    fs.writeFileSync(filePath, buffer);
 
     // --------------------------------------------------
     // 9. Extract text
@@ -184,7 +263,9 @@ export async function POST(
 
     try {
       extractedText =
-        await extractText(filePath);
+        await extractText(
+          temporaryFilePath
+        );
 
       console.log(
         "Replacement text extracted successfully."
@@ -244,11 +325,15 @@ export async function POST(
     const fileTypeLower =
       file.type.toLowerCase();
 
-    if (fileTypeLower.includes("pdf")) {
+    if (
+      fileTypeLower.includes("pdf") ||
+      fileNameLower.endsWith(".pdf")
+    ) {
       category = "PDF Document";
     } else if (
       fileTypeLower.includes("word") ||
-      fileNameLower.endsWith(".docx")
+      fileNameLower.endsWith(".docx") ||
+      fileNameLower.endsWith(".doc")
     ) {
       category = "Word Document";
     } else if (
@@ -269,7 +354,27 @@ export async function POST(
     }
 
     // --------------------------------------------------
-    // 13. Update current document
+    // 13. Upload replacement to Cloudinary
+    // --------------------------------------------------
+
+    console.log(
+      "Uploading replacement to Cloudinary..."
+    );
+
+    const cloudinaryUrl =
+      await uploadToCloudinary(
+        buffer,
+        file.name,
+        file.type
+      );
+
+    console.log(
+      "Replacement uploaded to Cloudinary:",
+      cloudinaryUrl
+    );
+
+    // --------------------------------------------------
+    // 14. Update current document
     // --------------------------------------------------
 
     await prisma.document.update({
@@ -280,9 +385,14 @@ export async function POST(
       data: {
         name: file.name,
 
-        fileType: file.type,
+        fileType:
+          file.type ||
+          "application/octet-stream",
 
-        filePath,
+        // IMPORTANT:
+        // Store Cloudinary URL instead of
+        // a local Windows file path.
+        filePath: cloudinaryUrl,
 
         fileSize: file.size,
 
@@ -302,19 +412,56 @@ export async function POST(
     );
 
     // --------------------------------------------------
-    // 14. Return success
+    // 15. Delete temporary file
+    // --------------------------------------------------
+
+    if (
+      temporaryFilePath &&
+      fs.existsSync(temporaryFilePath)
+    ) {
+      fs.unlinkSync(
+        temporaryFilePath
+      );
+
+      temporaryFilePath = null;
+    }
+
+    // --------------------------------------------------
+    // 16. Return success
     // --------------------------------------------------
 
     return NextResponse.json({
       success: true,
       message:
         "Document replaced successfully.",
+      documentId: document.id,
+      fileUrl: cloudinaryUrl,
     });
   } catch (error) {
     console.error(
       "Replace document error:",
       error
     );
+
+    // --------------------------------------------------
+    // Cleanup temporary file if something failed
+    // --------------------------------------------------
+
+    if (
+      temporaryFilePath &&
+      fs.existsSync(temporaryFilePath)
+    ) {
+      try {
+        fs.unlinkSync(
+          temporaryFilePath
+        );
+      } catch (cleanupError) {
+        console.error(
+          "Temporary file cleanup failed:",
+          cleanupError
+        );
+      }
+    }
 
     return NextResponse.json(
       {

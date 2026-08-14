@@ -14,6 +14,7 @@
     "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.3",
     "chart.js": "^4.5.1",
+    "cloudinary": "^2.10.0",
     "jspdf": "^4.2.1",
     "lucide-react": "^1.25.0",
     "mammoth": "^1.12.0",
